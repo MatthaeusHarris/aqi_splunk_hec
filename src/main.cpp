@@ -11,6 +11,9 @@
 
 #include <TFT_eSPI.h>
 
+#include <ESP8266TrueRandom.h>
+#include <qrcode.h>
+
 #include "airquality.h"
 #include "splunk.h"
 
@@ -26,6 +29,8 @@ const char* const wifi_input_html[] PROGMEM = {
   "<label for=\"wifi_enabled\">On</label"
 };
 
+const char passwd_chars[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+
 char splunk_server[255];
 char splunk_port[6] = "8080";
 char splunk_auth[40];
@@ -39,7 +44,6 @@ bool wifi_failed = true;
 
 uint32_t last_loop_time;
 bool blinky_state = true;
-bool switch_state = false;
 
 Pmsx003 pms(D4, D3);  //Next time, don't use pin D3 because that's the FLASH button
 
@@ -52,7 +56,7 @@ void saveConfigCallback() {
   shouldSaveConfig = true;
 }
 
-void WiFiSetup(bool reset) {
+void WiFiSetup(bool reset, const char *ssid, const char *passwd) {
   Serial.print("Mounting FS... ");
   if (SPIFFS.begin()) {
     Serial.println("Done!");
@@ -122,8 +126,8 @@ void WiFiSetup(bool reset) {
 
   if (wifi_enabled || reset) {
     Serial.println("Wifi is enabled, connecting...");
-    tft.println("Connecting to wifi");
-    if (!wifiManager.autoConnect("WifiManager")) {
+    // tft.println("Connecting to wifi");
+    if (!wifiManager.autoConnect(ssid, passwd)) {
       Serial.println("failed to connect and hit timeout");
       tft.println("Failed to connect to wifi");
       wifi_failed = true;
@@ -268,8 +272,45 @@ void show_info() {
   m.pushSprite(1,11);
   m.deleteSprite();
 }
+
+void mkpasswd(char *buf, uint8_t len, const char *dict) {
+  uint8_t i;
+  uint8_t dict_len = strlen(dict);
+  uint32_t rand;
+  for (i = 0; i < len; i++) {
+    rand = ESP8266TrueRandom.random(dict_len);
+    buf[i] = dict[rand];
+  }
+  buf[i] = '\0';
+}
+
+void displayQRCode(char *ssid, char *passwd) {
+  TFT_eSprite m = TFT_eSprite(&tft);
+  uint8_t x, y;
+  QRCode qrcode;
+  char buf[50];
+  uint8_t qrcodeBytes[qrcode_getBufferSize(4)];
+  sprintf(buf, "WIFI:T:WPA;S:%s;P:%s;;", ssid, passwd);
+  Serial.println(buf);
+
+  qrcode_initText(&qrcode, qrcodeBytes, 4, ECC_MEDIUM, buf);
+
+  m.setColorDepth(8);
+  m.createSprite(qrcode.size*2, qrcode.size*2);
+  for (y = 0; y < qrcode.size*2; y++) {
+    for (x = 0; x < qrcode.size*2; x++) {
+      m.drawPixel(x, y, qrcode_getModule(&qrcode, x/2, y/2)?TFT_WHITE:TFT_BLACK);
+      // Serial.print(qrcode_getModule(&qrcode, x/2, y/2) ? "\u2588\u2588": "  ");
+    }
+    Serial.print("\n");
+  }
+  m.pushSprite(31,62);
+  m.deleteSprite();
+}
  
 void setup() {
+  char wifipasswd[17];
+  char ssid[17];
   Serial.begin(115200);
   Serial.println();
   Serial.printf("Chip ID: %x\n", ESP.getChipId());
@@ -297,18 +338,24 @@ void setup() {
   delay(5000);
 
   if (digitalRead(0) == 0) {
-    Serial.printf("\nButton %d\n", switch_state);
+    Serial.printf("Generating nonce SSID and password\n");
+    sprintf(ssid, "AQI %x", ESP.getChipId());
+    Serial.printf("Sample SSID %s\n", ssid);
+    mkpasswd(wifipasswd, 16, passwd_chars);
+    Serial.printf("Sample wifi password %s\n", wifipasswd);
     tft.fillScreen(TFT_BLACK);
     tft.setCursor(0,0,1);
     tft.println("Resetting wifi");
     tft.println("Connect to");
-    tft.println("SSID WifiManager");
+    tft.printf("SSID %s\n", ssid);
+    tft.printf("PASS %s\n", wifipasswd);
     tft.println("and open");
     tft.println("http://192.168.4.1");
-    WiFiSetup(true);    
+    displayQRCode(ssid, wifipasswd);
+    WiFiSetup(true, ssid, wifipasswd);    
   } else {
     tft.println("Loading saved WiFi conf");
-    WiFiSetup(false);
+    WiFiSetup(false, "", "");
   } 
 
   setupScreen();
