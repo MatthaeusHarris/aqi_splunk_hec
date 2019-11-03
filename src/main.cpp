@@ -11,6 +11,7 @@
 
 // #include "User_Setup.h"
 #include <TFT_eSPI.h>
+// #include <Fonts/Font64rle.h>
 
 #include "airquality.h"
 #include "splunk.h"
@@ -19,6 +20,7 @@
 
 const uint16_t aqi_fg_color[] = {TFT_BLACK, TFT_BLACK, TFT_BLACK, TFT_WHITE, TFT_WHITE, TFT_WHITE, TFT_WHITE};
 const uint16_t aqi_bg_color[] = {TFT_GREEN, TFT_YELLOW, TFT_ORANGE, TFT_RED, TFT_MAGENTA, TFT_MAROON};
+
 const char* const wifi_input_html[] PROGMEM = {
   "type=\"checkbox\" style=\"width: auto;\" />"\
   "<label for=\"wifi_enabled\">Wifi Enabled</label",
@@ -184,7 +186,6 @@ void WiFiSetup(bool reset) {
 }
 
 void setupScreen() {
-  uint8_t x;
   tft.fillScreen(TFT_BLACK);
   tft.drawRect(0, 0, 128, 128, TFT_WHITE);
   tft.drawLine(0, 10, 128, 10, TFT_WHITE);
@@ -192,10 +193,6 @@ void setupScreen() {
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.drawCentreString("AQI MONITOR", 64, 2, 1);
   tft.drawLine(0,106,128,106, TFT_WHITE);
-  // tft.drawLine(0,123,128,123, TFT_WHITE);
-  // for (x = 0; x < 6; x++) {
-  //   tft.fillRect(1+(x*21), 123, 21, 4, aqi_bg_color[x]);
-  // }
   if (wifi_enabled) {
     tft.setCursor(2, 108);
     tft.printf("%s", WiFi.SSID().c_str());
@@ -211,26 +208,53 @@ void setupScreen() {
 }
 
 void updateScreen(uint16_t aqi, uint16_t pm2dot5, uint16_t pm10dot0) {
-  uint16_t bg_color = aqi_bg_color[find_bin(epa_aqi_high, aqi)];
-  uint16_t fg_color = aqi_fg_color[find_bin(epa_aqi_high, aqi)];
-  tft.fillRect(1,11,126,59, bg_color);
-  tft.setTextSize(8);
-  tft.setTextColor(fg_color, bg_color);
-  if (aqi < 100) {
-    tft.setCursor(26,14);
-  } else {
-    tft.setCursor(2,14);
-  }
-  tft.printf("%d", aqi);
+  static uint32_t last_update = 0;
+  uint32_t current_update;
+  static bool blinky = false;
+  char buf[5];
 
-  tft.setTextColor(TFT_WHITE);
-  tft.setTextSize(2);
-  tft.setCursor(2,72);
-  tft.fillRect(1,72,126,16, TFT_BLACK);
-  tft.printf("%3d PM2.5", pm2dot5);
-  tft.setCursor(2,88);
-  tft.fillRect(1,88,126,16, TFT_BLACK);
-  tft.printf("%3d PM10", pm10dot0);
+  uint16_t aqi_bin = find_bin(epa_aqi_high, aqi);
+
+  uint16_t bg_color = aqi_bg_color[aqi_bin];
+  uint16_t fg_color = aqi_fg_color[aqi_bin];
+  
+  TFT_eSprite m = TFT_eSprite(&tft);
+  m.setColorDepth(8);
+
+  m.createSprite(126,59);
+  m.fillSprite(bg_color);
+  m.setTextSize(1);
+  m.setTextColor(fg_color, bg_color);
+  m.setTextDatum(TL_DATUM);
+  sprintf(buf, "%d", aqi);
+  m.drawCentreString(buf, 64, 4, 6);
+  m.drawCentreString(epa_aqi_descriptions[aqi_bin], 64, 40, 2);
+  m.pushSprite(1,11);
+  m.deleteSprite();
+  
+  m.createSprite(126,32);
+  m.setTextColor(TFT_WHITE, TFT_BLACK);
+  m.setTextFont(2);
+  m.setTextSize(1);
+  m.setCursor(1,1);
+  m.fillSprite(TFT_BLACK);
+  m.setTextDatum(TL_DATUM);
+  m.printf("%3d PM2.5", pm2dot5);
+  m.setCursor(1,17);
+  m.printf("%3d PM10", pm10dot0);
+  m.pushSprite(1,72);
+  m.deleteSprite();
+
+  current_update = millis();
+  if (current_update - last_update > 500) {
+    last_update = current_update;
+    blinky = !blinky;
+    if (blinky) {
+      tft.fillRect(1,1,9,9, TFT_GREEN);
+    } else {
+      tft.fillRect(1,1,9,9, TFT_BLACK);
+    }
+  }
 }
  
 void setup() {
@@ -238,21 +262,18 @@ void setup() {
   Serial.println();
   Serial.printf("Chip ID: %x\n", ESP.getChipId());
 
-  char chip_id[10];
-  sprintf(chip_id, "%x", ESP.getChipId());
-
   Serial.println("Initializing LCD...");
 
   tft.init();
   tft.setRotation(0);
   tft.fillScreen(TFT_BLACK);
-  tft.setCursor(4,4,1);
+  tft.setCursor(0,4,1);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.printf("Chip ID %x\n", ESP.getChipId());
   Serial.println("Screen initialized.");
-  tft.println("Hold FLASH to reset wifi");
+  tft.println("Hold FLASH to reset\nwifi");
 
-  pinMode(BUILTIN_LED, OUTPUT);
+  pinMode(LED_BUILTIN, OUTPUT);
   pinMode(0, INPUT_PULLUP);
   last_loop_time = 0;
   
@@ -281,15 +302,12 @@ void setup() {
 
 void loop() {
   uint32_t loop_time;
-  char buf[6];
 
   const auto n = Pmsx003::Reserved;
   Pmsx003::pmsData data[n];
   Pmsx003::PmsStatus status = pms.read(data, n);
 
   uint16_t aqi;
-
-  uint16_t cursorY = tft.getCursorY();
 
   String eventString;
   
@@ -316,7 +334,7 @@ void loop() {
   loop_time = millis() - last_loop_time;
   if (loop_time > 500) {
     last_loop_time = millis();
-    digitalWrite(BUILTIN_LED, blinky_state);
+    digitalWrite(LED_BUILTIN, blinky_state);
     blinky_state = !blinky_state;
   }
 }

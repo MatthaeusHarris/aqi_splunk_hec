@@ -11,6 +11,15 @@ const uint16_t epa_pm10_low[] = {0, 108, 308, 508, 708, 848, 1008, 1208};
 const uint16_t epa_pm10_high[] = {108, 308, 508, 708, 848, 1008, 1208, 0};
 const uint16_t epa_aqi_low[] = {0, 51, 101, 151, 201, 301, 401}; // Not doubled, no floating point math necessary
 const uint16_t epa_aqi_high[] = {50,100,150,200,300,400,500,0};
+const char * const epa_aqi_descriptions[] PROGMEM = {
+    "Good",
+    "Moderate",
+    "Mildly Unhealthy",
+    "Unhealthy",
+    "Very Unhealthy",
+    "Hazardous",
+    "Holy Shit"
+};
 
 // Given a sorted array haystack, find the index of the first element greater than needle
 uint16_t find_bin(const uint16_t *haystack, uint16_t needle);
