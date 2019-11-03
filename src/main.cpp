@@ -7,11 +7,9 @@
 #include <WiFiManager.h>
 
 #include <Arduino.h>
-#include <ArduinoJson.h>
+#include <ArduinoJson.h> // This needs to be v5, not v6
 
-// #include "User_Setup.h"
 #include <TFT_eSPI.h>
-// #include <Fonts/Font64rle.h>
 
 #include "airquality.h"
 #include "splunk.h"
@@ -42,10 +40,8 @@ bool wifi_failed = true;
 uint32_t last_loop_time;
 bool blinky_state = true;
 bool switch_state = false;
-bool last_switch_state = false;
-uint16_t count = 0;
 
-Pmsx003 pms(D4, D3);
+Pmsx003 pms(D4, D3);  //Next time, don't use pin D3 because that's the FLASH button
 
 TFT_eSPI tft = TFT_eSPI();
 
@@ -228,7 +224,7 @@ void updateScreen(uint16_t aqi, uint16_t pm2dot5, uint16_t pm10dot0) {
   m.setTextDatum(TL_DATUM);
   sprintf(buf, "%d", aqi);
   m.drawCentreString(buf, 64, 4, 6);
-  m.drawCentreString(epa_aqi_descriptions[aqi_bin], 64, 40, 2);
+  m.drawCentreString(epa_aqi_descriptions[aqi_bin], 64, 42, 2);
   m.pushSprite(1,11);
   m.deleteSprite();
   
@@ -256,6 +252,22 @@ void updateScreen(uint16_t aqi, uint16_t pm2dot5, uint16_t pm10dot0) {
     }
   }
 }
+
+void show_info() {
+  uint8_t i;
+  TFT_eSprite m = TFT_eSprite(&tft);
+  m.setColorDepth(8);
+  m.createSprite(126,59);
+  m.setTextDatum(TL_DATUM);
+  for (i = 0; i < 6; i++) {
+    m.fillRect(0,i*10,126,10, aqi_bg_color[i]);
+    m.setTextColor(aqi_fg_color[i], aqi_bg_color[i]);
+    m.setCursor(1,i*10);
+    m.printf("%3d-%3d: %s", epa_aqi_low[i], epa_aqi_high[i], epa_aqi_descriptions[i]);
+  }
+  m.pushSprite(1,11);
+  m.deleteSprite();
+}
  
 void setup() {
   Serial.begin(115200);
@@ -266,23 +278,32 @@ void setup() {
 
   tft.init();
   tft.setRotation(0);
-  tft.fillScreen(TFT_BLACK);
-  tft.setCursor(0,4,1);
+  setupScreen();
+  show_info();
+
+  tft.setCursor(2,72);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.printf("Chip ID %x\n", ESP.getChipId());
+  tft.printf("Chip ID %x", ESP.getChipId());
   Serial.println("Screen initialized.");
-  tft.println("Hold FLASH to reset\nwifi");
+  tft.setCursor(2,82);
+  tft.printf("Hold FLASH to setup");
+  tft.setCursor(2,92);
+  tft.printf("WiFi");
 
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(0, INPUT_PULLUP);
   last_loop_time = 0;
   
-  delay(3000);
+  delay(5000);
 
   if (digitalRead(0) == 0) {
     Serial.printf("\nButton %d\n", switch_state);
+    tft.fillScreen(TFT_BLACK);
+    tft.setCursor(0,0,1);
     tft.println("Resetting wifi");
+    tft.println("Connect to");
     tft.println("SSID WifiManager");
+    tft.println("and open");
     tft.println("http://192.168.4.1");
     WiFiSetup(true);    
   } else {
@@ -291,7 +312,12 @@ void setup() {
   } 
 
   setupScreen();
-  
+  show_info();
+  tft.setCursor(2,72);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.printf("Waiting for ");
+  tft.setCursor(2,82);
+  tft.printf("sensor data");
   Serial.println("Starting PMS Initialization");
   pms.begin();
   pms.waitForData(Pmsx003::wakeupTime);
