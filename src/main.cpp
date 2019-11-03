@@ -9,18 +9,33 @@
 #include <Arduino.h>
 #include <ArduinoJson.h>
 
+// #include "User_Setup.h"
 #include <TFT_eSPI.h>
 
 #include "airquality.h"
 #include "splunk.h"
+
+#define HTML_BUF_SIZE 256
+
+const uint16_t aqi_fg_color[] = {TFT_BLACK, TFT_BLACK, TFT_BLACK, TFT_WHITE, TFT_WHITE, TFT_WHITE, TFT_WHITE};
+const uint16_t aqi_bg_color[] = {TFT_GREEN, TFT_YELLOW, TFT_ORANGE, TFT_RED, TFT_MAGENTA, TFT_MAROON};
+const char* const wifi_input_html[] PROGMEM = {
+  "type=\"checkbox\" style=\"width: auto;\" />"\
+  "<label for=\"wifi_enabled\">Wifi Enabled</label",
+  "type=\"checkbox\" checked style=\"width: auto;\" />"\
+  "<label for=\"wifi_enabled\">On</label"
+};
 
 char splunk_server[255];
 char splunk_port[6] = "8080";
 char splunk_auth[40];
 char splunk_index[40];
 char splunk_sourcetype[40];
+char splunk_wifi_enabled[4];
+uint8_t wifi_enabled = 0;
 
 bool shouldSaveConfig = false;
+bool wifi_failed = true;
 
 uint32_t last_loop_time;
 bool blinky_state = true;
@@ -63,6 +78,12 @@ void WiFiSetup(bool reset) {
           strcpy(splunk_auth, json["splunk_auth"]);
           strcpy(splunk_index, json["splunk_index"]);
           strcpy(splunk_sourcetype, json["splunk_sourcetype"]);
+          strcpy(splunk_wifi_enabled, json["wifi_enabled"]);
+          if (strcmp(splunk_wifi_enabled,"yes") == 0) {
+            wifi_enabled = 1;
+          } else {
+            wifi_enabled = 0;
+          }
         } else {
           Serial.println("failed to load json config");
         }
@@ -84,6 +105,7 @@ void WiFiSetup(bool reset) {
   WiFiManagerParameter custom_splunk_auth("auth", "HEC Token", splunk_auth, 40);
   WiFiManagerParameter custom_splunk_index("index", "index", splunk_index, 40);
   WiFiManagerParameter custom_splunk_sourcetype("sourcetype", "sourcetype", splunk_sourcetype, 40);
+  WiFiManagerParameter custom_wifi_enabled("wifi_enabled", "yes", "yes", 4, wifi_input_html[wifi_enabled]);
 
   WiFiManager wifiManager;
 
@@ -94,26 +116,33 @@ void WiFiSetup(bool reset) {
   wifiManager.addParameter(&custom_splunk_auth);
   wifiManager.addParameter(&custom_splunk_index);
   wifiManager.addParameter(&custom_splunk_sourcetype);
+  wifiManager.addParameter(&custom_wifi_enabled);
 
   if (reset) {
     wifiManager.resetSettings();
   }
-  
-  if (!wifiManager.autoConnect("WifiManager")) {
-    Serial.println("failed to connect and hit timeout");
-    tft.println("Failed to connect to wifi");
-    delay(3000);
-    ESP.reset();
-    delay(5000);
+
+  if (wifi_enabled || reset) {
+    Serial.println("Wifi is enabled, connecting...");
+    tft.println("Connecting to wifi");
+    if (!wifiManager.autoConnect("WifiManager")) {
+      Serial.println("failed to connect and hit timeout");
+      tft.println("Failed to connect to wifi");
+      wifi_failed = true;
+    } else {
+      Serial.printf("Connected to %s with IP address %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
+    }
+  } else {
+    Serial.println("Wifi disabled, skipping wifi connection.");
   }
 
-  Serial.println("Connected!");
 
   strcpy(splunk_server, custom_splunk_server.getValue());
   strcpy(splunk_port, custom_splunk_port.getValue());
   strcpy(splunk_auth, custom_splunk_auth.getValue());
   strcpy(splunk_index, custom_splunk_index.getValue());
   strcpy(splunk_sourcetype, custom_splunk_sourcetype.getValue());
+  strcpy(splunk_wifi_enabled, custom_wifi_enabled.getValue());
 
   if (shouldSaveConfig) {
     Serial.println("Saving config");
@@ -124,6 +153,10 @@ void WiFiSetup(bool reset) {
     json["splunk_auth"] = splunk_auth;
     json["splunk_index"] = splunk_index;
     json["splunk_sourcetype"] = splunk_sourcetype;
+    if (strcmp(splunk_wifi_enabled, "yes") != 0) {
+      strcpy(splunk_wifi_enabled, "no");
+    }
+    json["wifi_enabled"] = splunk_wifi_enabled;
 
     File configFile = SPIFFS.open("/config.json", "w");
     if (!configFile) {
@@ -134,11 +167,72 @@ void WiFiSetup(bool reset) {
     json.printTo(configFile);
     configFile.close();
   }
-
-  Serial.println("local ip");
-  Serial.println(WiFi.localIP());
+  if (wifi_failed && wifi_enabled) {
+    Serial.println("Wifi failed to connect\nRestarting...");
+    tft.println("Wifi failed to connect\nRestarting...");
+    delay(3000);
+    ESP.reset();
+    delay(5000);
+  } else if (wifi_enabled) {
+    Serial.println("local ip");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("Starting in standalone mode");
+    WiFi.disconnect();
+    WiFi.forceSleepBegin();
+  }
 }
 
+void setupScreen() {
+  uint8_t x;
+  tft.fillScreen(TFT_BLACK);
+  tft.drawRect(0, 0, 128, 128, TFT_WHITE);
+  tft.drawLine(0, 10, 128, 10, TFT_WHITE);
+  tft.drawLine(0, 70, 128, 70, TFT_WHITE);
+  tft.setTextColor(TFT_WHITE, TFT_BLACK);
+  tft.drawCentreString("AQI MONITOR", 64, 2, 1);
+  tft.drawLine(0,106,128,106, TFT_WHITE);
+  // tft.drawLine(0,123,128,123, TFT_WHITE);
+  // for (x = 0; x < 6; x++) {
+  //   tft.fillRect(1+(x*21), 123, 21, 4, aqi_bg_color[x]);
+  // }
+  if (wifi_enabled) {
+    tft.setCursor(2, 108);
+    tft.printf("%s", WiFi.SSID().c_str());
+    tft.setCursor(2, 118);
+    tft.printf("%s", WiFi.localIP().toString().c_str());
+  } else {
+    tft.setCursor(2, 108);
+    tft.printf("RST for WiFi config");
+    tft.setCursor(2, 118);
+    tft.setTextColor(TFT_BLUE, TFT_BLACK);
+    tft.printf("#hacktheplanet");
+  }
+}
+
+void updateScreen(uint16_t aqi, uint16_t pm2dot5, uint16_t pm10dot0) {
+  uint16_t bg_color = aqi_bg_color[find_bin(epa_aqi_high, aqi)];
+  uint16_t fg_color = aqi_fg_color[find_bin(epa_aqi_high, aqi)];
+  tft.fillRect(1,11,126,59, bg_color);
+  tft.setTextSize(8);
+  tft.setTextColor(fg_color, bg_color);
+  if (aqi < 100) {
+    tft.setCursor(26,14);
+  } else {
+    tft.setCursor(2,14);
+  }
+  tft.printf("%d", aqi);
+
+  tft.setTextColor(TFT_WHITE);
+  tft.setTextSize(2);
+  tft.setCursor(2,72);
+  tft.fillRect(1,72,126,16, TFT_BLACK);
+  tft.printf("%3d PM2.5", pm2dot5);
+  tft.setCursor(2,88);
+  tft.fillRect(1,88,126,16, TFT_BLACK);
+  tft.printf("%3d PM10", pm10dot0);
+}
+ 
 void setup() {
   Serial.begin(115200);
   Serial.println();
@@ -154,9 +248,9 @@ void setup() {
   tft.fillScreen(TFT_BLACK);
   tft.setCursor(4,4,1);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
-  tft.println("Screen initialized.");
+  tft.printf("Chip ID %x\n", ESP.getChipId());
   Serial.println("Screen initialized.");
-  tft.println("Press FLASH to reset wifi");
+  tft.println("Hold FLASH to reset wifi");
 
   pinMode(BUILTIN_LED, OUTPUT);
   pinMode(0, INPUT_PULLUP);
@@ -171,32 +265,21 @@ void setup() {
     tft.println("http://192.168.4.1");
     WiFiSetup(true);    
   } else {
-    tft.println("Connecting to wifi");
+    tft.println("Loading saved WiFi conf");
     WiFiSetup(false);
-  }
+  } 
 
-  splunk.init(splunk_server, splunk_port, splunk_auth, chip_id, splunk_sourcetype, splunk_index);
-
-  tft.fillScreen(TFT_BLACK);
-  tft.setCursor(0,8,1);
-  tft.drawCentreString("AQI MONITOR", 64, 0, 1);
-  // tft.println("AQI MONITOR");
-  tft.printf("SSID %s\n", WiFi.SSID().c_str());
-  tft.printf("IP %s\n", WiFi.localIP().toString().c_str());
-  tft.printf("Device %x\n", ESP.getChipId());
-  tft.printf("Index %s\n", splunk_index);
-  tft.printf("%s\n", splunk_server);
+  setupScreen();
+  
   Serial.println("Starting PMS Initialization");
   pms.begin();
   pms.waitForData(Pmsx003::wakeupTime);
   pms.write(Pmsx003::cmdModeActive);
 
   Serial.printf("PMS initialized.  Waiting for data...");
-  
 }
 
 void loop() {
-  // put your main code here, to run repeatedly:
   uint32_t loop_time;
   char buf[6];
 
@@ -213,20 +296,14 @@ void loop() {
   switch(status) {
     case Pmsx003::OK:
     {
-      // Serial.println("__________________");
       aqi = calc_AQI(data[Pmsx003::PM2dot5], data[Pmsx003::PM10dot0]);
       Serial.printf("AQI: %d\tPM2.5: %d\t PM10: %d\n", aqi, data[Pmsx003::PM2dot5], data[Pmsx003::PM10dot0]);
-      // tft.setCursor(4,cursorY);
-      // tft.printf("AQI: %d     ", aqi);
-      sprintf(buf, "%d", aqi);
-      tft.setTextSize(3);
-      tft.drawCentreString("      ", 64, 64, 2);
-      tft.drawCentreString(buf, 64, 64, 2);
+      updateScreen(aqi, data[Pmsx003::PM2dot5], data[Pmsx003::PM10dot0]);
 
-      eventString = "{\"PM2dot5\": \"" + String(data[Pmsx003::PM2dot5]) + "\", \"PM10dot0\": \"" + String(data[Pmsx003::PM10dot0]) + "\", \"aqi\":\"" + String(aqi) + "\" }";
-
-      // sendEvent(eventString, String(splunk_server), String(splunk_port), String(splunk_auth));
-      splunk.sendEvent(eventString);
+      if (wifi_enabled) {
+        eventString = "{\"PM2dot5\": \"" + String(data[Pmsx003::PM2dot5]) + "\", \"PM10dot0\": \"" + String(data[Pmsx003::PM10dot0]) + "\", \"aqi\":\"" + String(aqi) + "\" }";
+        splunk.sendEvent(eventString);
+      }
     }
     case Pmsx003::noData:
       break;

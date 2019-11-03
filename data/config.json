@@ -1,0 +1,8 @@
+{
+    "splunk_server":"",
+    "splunk_port":"",
+    "splunk_auth":"",
+    "splunk_index":"",
+    "splunk_sourcetype":"",
+    "wifi_enabled":"no"
+}

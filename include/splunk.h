@@ -1,6 +1,5 @@
 #ifndef __splunk_hec_h__
 #define __splunk_hec_h__
-
 // void sendEvent(String json, String splunkServer, String splunkPort, String splunkToken);
 
 
