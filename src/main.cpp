@@ -31,9 +31,9 @@ const char* const wifi_input_html[] PROGMEM = {
 
 const char passwd_chars[] = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
-char splunk_server[255];
+char splunk_server[1024];
 char splunk_port[6] = "8080";
-char splunk_auth[40];
+char splunk_auth[2048];
 char splunk_index[40];
 char splunk_sourcetype[40];
 char splunk_wifi_enabled[4];
@@ -104,9 +104,9 @@ void WiFiSetup(bool reset, const char *ssid, const char *passwd) {
 
   Serial.println("Done with FS.");
 
-  WiFiManagerParameter custom_splunk_server("server", "splunk server", splunk_server, 255);
+  WiFiManagerParameter custom_splunk_server("server", "splunk server", splunk_server, 1024);
   WiFiManagerParameter custom_splunk_port("port", "8080", splunk_port, 6);
-  WiFiManagerParameter custom_splunk_auth("auth", "HEC Token", splunk_auth, 40);
+  WiFiManagerParameter custom_splunk_auth("auth", "HEC Token", splunk_auth, 2048);
   WiFiManagerParameter custom_splunk_index("index", "index", splunk_index, 40);
   WiFiManagerParameter custom_splunk_sourcetype("sourcetype", "sourcetype", splunk_sourcetype, 40);
   WiFiManagerParameter custom_device_location("device_location", "Device Location", device_location, 255);
@@ -318,9 +318,11 @@ void displayQRCode(char *ssid, char *passwd) {
 void setup() {
   char wifipasswd[17];
   char ssid[17];
+  char chipID[10];
+  sprintf(chipID, "%x", ESP.getChipId());
   Serial.begin(115200);
   Serial.println();
-  Serial.printf("Chip ID: %x\n", ESP.getChipId());
+  Serial.printf("Chip ID: %s\n", chipID);
 
   Serial.println("Initializing LCD...");
 
@@ -367,6 +369,11 @@ void setup() {
 
   setupScreen();
   show_info();
+
+  if (wifi_enabled) {
+    splunk.init(splunk_server, splunk_port, splunk_auth, chipID, splunk_sourcetype, splunk_index);
+  }
+
   tft.setCursor(2,72);
   tft.setTextColor(TFT_WHITE, TFT_BLACK);
   tft.printf("Waiting for ");
