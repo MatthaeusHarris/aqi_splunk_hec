@@ -37,6 +37,7 @@ char splunk_auth[40];
 char splunk_index[40];
 char splunk_sourcetype[40];
 char splunk_wifi_enabled[4];
+char device_location[255];
 uint8_t wifi_enabled = 0;
 
 bool shouldSaveConfig = false;
@@ -80,6 +81,7 @@ void WiFiSetup(bool reset, const char *ssid, const char *passwd) {
           strcpy(splunk_auth, json["splunk_auth"]);
           strcpy(splunk_index, json["splunk_index"]);
           strcpy(splunk_sourcetype, json["splunk_sourcetype"]);
+          strcpy(device_location, json["device_location"]);
           strcpy(splunk_wifi_enabled, json["wifi_enabled"]);
           if (strcmp(splunk_wifi_enabled,"yes") == 0) {
             wifi_enabled = 1;
@@ -107,6 +109,7 @@ void WiFiSetup(bool reset, const char *ssid, const char *passwd) {
   WiFiManagerParameter custom_splunk_auth("auth", "HEC Token", splunk_auth, 40);
   WiFiManagerParameter custom_splunk_index("index", "index", splunk_index, 40);
   WiFiManagerParameter custom_splunk_sourcetype("sourcetype", "sourcetype", splunk_sourcetype, 40);
+  WiFiManagerParameter custom_device_location("device_location", "Device Location", device_location, 255);
   WiFiManagerParameter custom_wifi_enabled("wifi_enabled", "yes", "yes", 4, wifi_input_html[wifi_enabled]);
 
   WiFiManager wifiManager;
@@ -118,6 +121,7 @@ void WiFiSetup(bool reset, const char *ssid, const char *passwd) {
   wifiManager.addParameter(&custom_splunk_auth);
   wifiManager.addParameter(&custom_splunk_index);
   wifiManager.addParameter(&custom_splunk_sourcetype);
+  wifiManager.addParameter(&custom_device_location);
   wifiManager.addParameter(&custom_wifi_enabled);
 
   if (reset) {
@@ -133,6 +137,7 @@ void WiFiSetup(bool reset, const char *ssid, const char *passwd) {
       wifi_failed = true;
     } else {
       Serial.printf("Connected to %s with IP address %s\n", WiFi.SSID().c_str(), WiFi.localIP().toString().c_str());
+      wifi_failed = false;
     }
   } else {
     Serial.println("Wifi disabled, skipping wifi connection.");
@@ -144,6 +149,7 @@ void WiFiSetup(bool reset, const char *ssid, const char *passwd) {
   strcpy(splunk_auth, custom_splunk_auth.getValue());
   strcpy(splunk_index, custom_splunk_index.getValue());
   strcpy(splunk_sourcetype, custom_splunk_sourcetype.getValue());
+  strcpy(device_location, custom_device_location.getValue());
   strcpy(splunk_wifi_enabled, custom_wifi_enabled.getValue());
 
   if (shouldSaveConfig) {
@@ -155,6 +161,7 @@ void WiFiSetup(bool reset, const char *ssid, const char *passwd) {
     json["splunk_auth"] = splunk_auth;
     json["splunk_index"] = splunk_index;
     json["splunk_sourcetype"] = splunk_sourcetype;
+    json["device_location"] = device_location;
     if (strcmp(splunk_wifi_enabled, "yes") != 0) {
       strcpy(splunk_wifi_enabled, "no");
     }
@@ -392,7 +399,11 @@ void loop() {
       updateScreen(aqi, data[Pmsx003::PM2dot5], data[Pmsx003::PM10dot0]);
 
       if (wifi_enabled) {
-        eventString = "{\"PM2dot5\": \"" + String(data[Pmsx003::PM2dot5]) + "\", \"PM10dot0\": \"" + String(data[Pmsx003::PM10dot0]) + "\", \"aqi\":\"" + String(aqi) + "\" }";
+        eventString = "{\"PM2dot5\": \"" + String(data[Pmsx003::PM2dot5]) + 
+          "\", \"PM10dot0\": \"" + String(data[Pmsx003::PM10dot0]) + 
+          "\", \"aqi\":\"" + String(aqi) +
+          "\",  \"device_location\":\"" + String(device_location) + 
+          "\"}";
         splunk.sendEvent(eventString);
       }
     }
