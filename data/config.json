@@ -4,5 +4,6 @@
     "splunk_auth":"",
     "splunk_index":"",
     "splunk_sourcetype":"",
+    "device_location":"",
     "wifi_enabled":"no"
 }

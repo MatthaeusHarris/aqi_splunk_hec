@@ -175,6 +175,10 @@ void WiFiSetup(bool reset, const char *ssid, const char *passwd) {
     json.printTo(Serial);
     json.printTo(configFile);
     configFile.close();
+    Serial.println("Restarting...");
+    tft.println("Config saved.\nRestarting...");
+    delay(3000);
+    ESP.reset();
   }
   if (wifi_failed && wifi_enabled) {
     Serial.println("Wifi failed to connect\nRestarting...");
@@ -339,6 +343,8 @@ void setup() {
   tft.printf("Hold FLASH to setup");
   tft.setCursor(2,92);
   tft.printf("WiFi");
+
+  Serial.println("Hold FLASH to setup wifi");
 
   pinMode(LED_BUILTIN, OUTPUT);
   pinMode(0, INPUT_PULLUP);
